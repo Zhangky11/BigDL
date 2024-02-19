@@ -27,10 +27,12 @@ print(f'Running on {device}')
 
 PROMPT = "Once upon a time, there existed a little girl who liked to have adventures. She wanted to go to places and meet new people, and have fun"
 TEST_MODEL_LIST = [
-    ("MPT-7B", AutoModelForCausalLM, AutoTokenizer, os.environ.get('MPT_7B_ORIGIN_PATH')),
-    ("Llama2-7B", AutoModelForCausalLM, LlamaTokenizer, os.environ.get('LLAMA2_7B_ORIGIN_PATH')),
-    ("Falcon-7B", AutoModelForCausalLM, AutoTokenizer, os.environ.get('FALCON_7B_ORIGIN_PATH')),
-    ("ChatGLM2-6B", AutoModel, AutoTokenizer, os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
+    # ("MPT-7B", AutoModelForCausalLM, AutoTokenizer, os.environ.get('MPT_7B_ORIGIN_PATH')),
+    # ("Llama2-7B", AutoModelForCausalLM, LlamaTokenizer, os.environ.get('LLAMA2_7B_ORIGIN_PATH')),
+    # ("Falcon-7B", AutoModelForCausalLM, AutoTokenizer, os.environ.get('FALCON_7B_ORIGIN_PATH')),
+    # ("ChatGLM2-6B", AutoModel, AutoTokenizer, os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
+    ("Mistral-7B-Instruct-v0.1", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Mistral-7B-Instruct-v0.1"),
+    # ("Baichuan-13B-Chat", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Baichuan-13B-Chat"),
 ]
 
 class Test_Optimize_Gpu_Model:
@@ -54,6 +56,9 @@ class Test_Optimize_Gpu_Model:
                                         load_in_4bit=True,
                                         optimize_model=False,
                                         trust_remote_code=True)
+
+            print(model)
+
             model = model.to(device)
             for layer_name, layer_module in model.named_modules():
                 if layer_name == layer_norm:
@@ -126,6 +131,10 @@ class Test_Optimize_Gpu_Model:
             self.Falcon_7B_gpu_model(Name, Model, Tokenizer, model_path)
         elif Name == "ChatGLM2-6B":
             self.Chatglm2_gpu_model(Name, Model, Tokenizer, model_path)
+        elif Name == "Mistral-7B-Instruct-v0.1":
+            self.Mistral_gpu_model(Name, Model, Tokenizer, model_path)
+        elif Name == "Baichuan-13B-Chat":
+            self.Baichuan_gpu_model(Name, Model, Tokenizer, model_path)
 
     
     def MPT_7B_gpu_model(self, Name, Model, Tokenizer, model_path):
@@ -154,4 +163,18 @@ class Test_Optimize_Gpu_Model:
         layer_norm = "transformer.encoder.layers.27.input_layernorm"
         self_attn = "transformer.encoder.layers.27.self_attention"
         lower_bound = 5e-3
+        self.run_optimize_gpu_model(Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound)
+
+    def Mistral_gpu_model(self, Name, Model, Tokenizer, model_path):
+        # currently only need to compare the output of one self-attention layer.
+        layer_norm = "model.layers.31.input_layernorm"
+        self_attn = "model.layers.31.self_attn"
+        lower_bound = 9e-3
+        self.run_optimize_gpu_model(Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound)
+    
+    def Baichuan_gpu_model(self, Name, Model, Tokenizer, model_path):
+        # currently only need to compare the output of one self-attention layer.
+        layer_norm = "model.layers.39.input_layernorm"
+        self_attn = "model.layers.39.self_attn"
+        lower_bound = 0
         self.run_optimize_gpu_model(Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound)
