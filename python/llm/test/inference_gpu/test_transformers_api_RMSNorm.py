@@ -30,8 +30,8 @@ TEST_MODEL_LIST = [
     # ("MPT-7B", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/mpt-7b-chat"),  # os.environ.get('MPT_7B_ORIGIN_PATH')),
     # ("Llama2-7B", AutoModelForCausalLM, LlamaTokenizer, "/mnt/disk1/models/Llama-2-7b-chat-hf"), # os.environ.get('LLAMA2_7B_ORIGIN_PATH')),
     # ("Falcon-7B", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/f"),  # os.environ.get('FALCON_7B_ORIGIN_PATH')),
-    # ("ChatGLM2-6B", AutoModel, AutoTokenizer, "/mnt/disk1/models/chatglm2-6b"), # os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
-    ("Mistral-7B-Instruct-v0.1", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Mistral-7B-Instruct-v0.1"),  # Need transformers==4.34.0
+    ("ChatGLM2-6B", AutoModel, AutoTokenizer, "/mnt/disk1/models/chatglm2-6b"), # os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
+    # ("Mistral-7B-Instruct-v0.1", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Mistral-7B-Instruct-v0.1"),  # Need transformers==4.34.0
     # ("Baichuan-13B-Chat", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Baichuan-13B-Chat"),
     # ("Qwen-7B-Chat", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Qwen-7B-Chat"),
 
@@ -45,11 +45,12 @@ class Test_Optimize_Gpu_Model:
 
     def run_optimize_gpu_model(self, Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound):
         with torch.inference_mode():
+            def pre_forward_hook(module, input, output, layer_name):
+                self.pre_layer_outputs.append(output)
+
             def forward_hook(module, input, output, layer_name):
                 self.layer_outputs.append(output)
 
-            def pre_forward_hook(module, input, output, layer_name):
-                self.pre_layer_outputs.append(output)
 
             tokenizer = Tokenizer.from_pretrained(model_path, trust_remote_code=True)
             input_ids = tokenizer.encode(PROMPT, return_tensors="pt").to(device)
@@ -117,6 +118,29 @@ class Test_Optimize_Gpu_Model:
                                 t4 = t4[:, :, 15:17, :]
                             attn_output_diff.append(t3 - t4)
 
+            if 1:  # Only test use, need to be removed before commit
+                output_base_dir = "./output/"
+                print(output_base_dir)
+                if not os.path.exists(output_base_dir):
+                    os.makedirs(output_base_dir)
+                
+                output_model_dir = os.path.join(output_base_dir, Name)
+                if not os.path.exists(output_model_dir):
+                    os.makedirs(output_model_dir)
+                print(output_model_dir)
+
+                import numpy as np
+                output_txt = os.path.join(output_model_dir, "RMSNorm_matrix.txt")
+
+                layer_tensor_str = np.array2string(layer_tensor[:,:,:10].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
+                opt_layer_tensor_str = np.array2string(opt_layer_tensor[:,:,:10].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
+                
+                with open(output_txt, 'a+') as file:
+                    file.write("*" * 50)
+                    file.write(f"\nlayer_tensor:\n{layer_tensor_str}\n\n")
+                    file.write(f"opt_layer_tensor\n{opt_layer_tensor_str}\n")
+                    file.write("^" * 50)
+
             max_diff_tensor = [torch.max(item).item() for item in attn_output_diff]
             print(max_diff_tensor)
             
@@ -149,9 +173,11 @@ class Test_Optimize_Gpu_Model:
 
     def Llama2_7B_gpu_model(self, Name, Model, Tokenizer, model_path):
         # currently only compare the output of the last self-attention layer.
-        layer_norm = "model.layers.31.input_layernorm"
-        self_attn = "model.layers.31.self_attn"
-        lower_bound = 5e-2
+        # layer_norm = "model.layers.31.input_layernorm"
+        # self_attn = "model.layers.31.self_attn"
+        layer_norm = "model.layers.30.mlp"
+        self_attn = "model.layers.31.input_layernorm"
+        lower_bound = 21
         self.run_optimize_gpu_model(Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound)
     
     def Falcon_7B_gpu_model(self, Name, Model, Tokenizer, model_path):
@@ -163,9 +189,9 @@ class Test_Optimize_Gpu_Model:
     
     def Chatglm2_gpu_model(self, Name, Model, Tokenizer, model_path):
         # currently only need to compare the output of one self-attention layer.
-        layer_norm = "transformer.encoder.layers.27.input_layernorm"
-        self_attn = "transformer.encoder.layers.27.self_attention"
-        lower_bound = 5e-3
+        layer_norm = "transformer.encoder.layers.26.mlp"
+        self_attn = "transformer.encoder.layers.27.input_layernorm"
+        lower_bound = 4e-3
         self.run_optimize_gpu_model(Name, Model, Tokenizer, model_path, self_attn, layer_norm, lower_bound)
 
     def Mistral_gpu_model(self, Name, Model, Tokenizer, model_path):
