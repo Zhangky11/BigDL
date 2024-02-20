@@ -28,9 +28,9 @@ print(f'Running on {device}')
 PROMPT = "Once upon a time, there existed a little girl who liked to have adventures. She wanted to go to places and meet new people, and have fun"
 TEST_MODEL_LIST = [
     # ("MPT-7B", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/mpt-7b-chat"),  # os.environ.get('MPT_7B_ORIGIN_PATH')),
-    # ("Llama2-7B", AutoModelForCausalLM, LlamaTokenizer, "/mnt/disk1/models/Llama-2-7b-chat-hf"), # os.environ.get('LLAMA2_7B_ORIGIN_PATH')),
+    ("Llama2-7B", AutoModelForCausalLM, LlamaTokenizer, "/mnt/disk1/models/Llama-2-7b-chat-hf"), # os.environ.get('LLAMA2_7B_ORIGIN_PATH')),
     # ("Falcon-7B", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/f"),  # os.environ.get('FALCON_7B_ORIGIN_PATH')),
-    ("ChatGLM2-6B", AutoModel, AutoTokenizer, "/mnt/disk1/models/chatglm2-6b"), # os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
+    # ("ChatGLM2-6B", AutoModel, AutoTokenizer, "/mnt/disk1/models/chatglm2-6b"), # os.environ.get('CHATGLM2_6B_ORIGIN_PATH')),
     # ("Mistral-7B-Instruct-v0.1", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Mistral-7B-Instruct-v0.1"),  # Need transformers==4.34.0
     # ("Baichuan-13B-Chat", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Baichuan-13B-Chat"),
     # ("Qwen-7B-Chat", AutoModelForCausalLM, AutoTokenizer, "/mnt/disk1/models/Qwen-7B-Chat"),
@@ -117,6 +117,13 @@ class Test_Optimize_Gpu_Model:
                                 # We need to narrow it here.
                                 t4 = t4[:, :, 15:17, :]
                             attn_output_diff.append(t3 - t4)
+            max_diff_tensor = [torch.max(item).item() for item in attn_output_diff]
+            print(max_diff_tensor)
+            max_value_index_list = []
+            for i, item in enumerate(attn_output_diff):
+                max_value_index_list.append(torch.argmax(item.flatten()))
+
+            print(f"\nMax_value_index_list:{max_value_index_list}\n")
 
             if 1:  # Only test use, need to be removed before commit
                 output_base_dir = "./output/"
@@ -131,18 +138,38 @@ class Test_Optimize_Gpu_Model:
 
                 import numpy as np
                 output_txt = os.path.join(output_model_dir, "RMSNorm_matrix.txt")
-
-                layer_tensor_str = np.array2string(layer_tensor[:,:,:10].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
-                opt_layer_tensor_str = np.array2string(opt_layer_tensor[:,:,:10].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
+                
+                start_print_index = max_value_index_list[0] - 10
+                end_print_index = max_value_index_list[0] + 10
+                layer_tensor_str = np.array2string(layer_tensor.flatten()[start_print_index:end_print_index].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
+                opt_layer_tensor_str = np.array2string(opt_layer_tensor.flatten()[start_print_index:end_print_index].cpu().numpy(), separator=',', formatter={'float_kind': lambda x: "%.6f" % x})
                 
                 with open(output_txt, 'a+') as file:
                     file.write("*" * 50)
                     file.write(f"\nlayer_tensor:\n{layer_tensor_str}\n\n")
                     file.write(f"opt_layer_tensor\n{opt_layer_tensor_str}\n")
                     file.write("^" * 50)
+                
+                import matplotlib.pyplot as plt
+                plt.hist(attn_output_diff[0].flatten().cpu().numpy(), bins=5, alpha=0.7)
+                plt.title('Histogram of Tensor')
+                plt.xlabel('Value')
+                plt.ylabel('Frequency')
+                plt.yscale('log')
+                plt.savefig(f"./output/{Name}/histgram.png")
+                plt.show()
+                plt.close()
 
-            max_diff_tensor = [torch.max(item).item() for item in attn_output_diff]
-            print(max_diff_tensor)
+                plt.plot(layer_tensor.flatten().cpu().numpy(), color='blue', alpha=0.7, label='Without Optimization')
+                plt.plot(opt_layer_tensor.flatten().cpu().numpy(), color='red', alpha=0.7, label='With Optimization')
+                plt.title('Line Plot of Tensor Dimensions')
+                plt.xlabel('Index')
+                plt.ylabel('Value')
+
+                plt.savefig(f"./output/{Name}/linechart.png")
+                plt.show()
+
+
             
             assert all(max_diff <= lower_bound for max_diff in max_diff_tensor)
     
